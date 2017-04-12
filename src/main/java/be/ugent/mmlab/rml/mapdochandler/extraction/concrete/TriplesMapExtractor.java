@@ -1,6 +1,7 @@
 package be.ugent.mmlab.rml.mapdochandler.extraction.concrete;
 
 import be.ugent.mmlab.rml.mapdochandler.extraction.ConcreteSourceFactory;
+import be.ugent.mmlab.rml.mapdochandler.extraction.condition.ConditionPredicateObjectMapExtractor;
 import be.ugent.mmlab.rml.mapdochandler.extraction.source.concrete.LocalFileExtractor;
 import be.ugent.mmlab.rml.model.RDFTerm.GraphMap;
 import be.ugent.mmlab.rml.model.LogicalSource;
@@ -10,6 +11,7 @@ import be.ugent.mmlab.rml.model.ReferenceFormulation;
 import be.ugent.mmlab.rml.model.Source;
 import be.ugent.mmlab.rml.model.TriplesMap;
 import be.ugent.mmlab.rml.model.std.StdLogicalSource;
+import be.ugent.mmlab.rml.vocabularies.CRMLVocabulary;
 import be.ugent.mmlab.rml.vocabularies.QLVocabulary.QLTerm;
 import be.ugent.mmlab.rml.vocabularies.R2RMLVocabulary;
 import be.ugent.mmlab.rml.vocabularies.RMLVocabulary;
@@ -40,7 +42,9 @@ import org.openrdf.repository.RepositoryResult;
 public class TriplesMapExtractor {
     
     //Log
-    static final Logger log = LoggerFactory.getLogger(TriplesMapExtractor.class);
+    static final Logger log = 
+            LoggerFactory.getLogger(
+            TriplesMapExtractor.class.getSimpleName());
        
     public void extractTriplesMap(
             Repository repository, Resource triplesMapSubject,
@@ -57,7 +61,7 @@ public class TriplesMapExtractor {
         
         result.setLogicalSource(logicalSource);
         // Create a graph maps storage to save all met graph uri during parsing.
-        Set<GraphMap> graphMaps = new HashSet<GraphMap>();
+        GraphMap graphMap = null;
 
         // Extract exactly one SubjectMap
         //SubjectMap subjectMap = extractSubjectMap(
@@ -65,7 +69,7 @@ public class TriplesMapExtractor {
         SubjectMapExtractor sbjMapExtractor = new SubjectMapExtractor();
         SubjectMap subjectMap =
                 sbjMapExtractor.extractSubjectMap(
-                repository, triplesMapSubject, graphMaps, result);
+                repository, triplesMapSubject, graphMap, result);
         
         try {
             result.setSubjectMap(subjectMap);
@@ -75,7 +79,7 @@ public class TriplesMapExtractor {
 
         // Extract PredicateObjectMaps
         Set<PredicateObjectMap> predicateObjectMaps = extractPredicateObjectMaps(
-                repository, triplesMapSubject, graphMaps, result,
+                repository, triplesMapSubject, graphMap, result,
                 triplesMapResources);
 
         // Extract zero or more PredicateObjectMaps
@@ -83,7 +87,7 @@ public class TriplesMapExtractor {
             result.setPredicateObjectMap(predicateObjectMap);
         }
 
-        log.debug("Extract of TriplesMap subject : "
+        log.debug("Extract of TriplesMap : "
                 + triplesMapSubject.stringValue() + " done.");
     }
     
@@ -113,6 +117,11 @@ public class TriplesMapExtractor {
                     logicalSourceExtractor.getIterator(
                     repository, blankLogicalSource, triplesMap);
             log.debug("Iterator " + iterator);
+            
+            String table =
+                    logicalSourceExtractor.getTableName(
+                    repository, blankLogicalSource, triplesMap);
+            log.debug("Table " + table);
             
             URI p = vf.createURI(
                     RMLVocabulary.RML_NAMESPACE 
@@ -158,7 +167,7 @@ public class TriplesMapExtractor {
 
                 for (Source inputSource : inputSources) {
                     logicalSource = new StdLogicalSource(
-                            iterator, inputSource, query, 
+                            iterator, inputSource, query, table,
                             referenceFormulation, dialect);
                 }
                 log.debug("Triples Map extracted");
@@ -175,7 +184,7 @@ public class TriplesMapExtractor {
 
     public Set<PredicateObjectMap> extractPredicateObjectMaps(
             Repository repository, Resource triplesMapSubject,
-            Set<GraphMap> graphMaps, TriplesMap result,
+            GraphMap graphMap, TriplesMap result,
             Map<Resource, TriplesMap> triplesMapResources) {
         Set<PredicateObjectMap> predicateObjectMaps = null;
         try {
@@ -190,20 +199,42 @@ public class TriplesMapExtractor {
             predicateObjectMaps = new HashSet<PredicateObjectMap>();
             try {
                 while (statements.hasNext()) {
-                    PredicateObjectMapExtractor preObjMapExtractor = 
-                            new PredicateObjectMapExtractor();
-                    PredicateObjectMap predicateObjectMap = 
+                    PredicateObjectMapExtractor preObjMapExtractor ;
+                    Statement statement = statements.next();
+
+                    if (connection.hasStatement(
+                            (Resource) statement.getObject(),
+                            vf.createURI(CRMLVocabulary.CRML_NAMESPACE
+                            + CRMLVocabulary.cRMLTerm.BOOLEAN_CONDITION), null, true)) {
+                        log.debug("Condition Predicate Object Map Extractor");
+                        preObjMapExtractor = new ConditionPredicateObjectMapExtractor();
+                    }
+                    else {
+                        if (connection.hasStatement(
+                                (Resource) statement.getObject(),
+                                vf.createURI(CRMLVocabulary.CRML_NAMESPACE
+                                + CRMLVocabulary.cRMLTerm.FALLBACK),
+                                null, true)) {
+                            log.debug("Predicate Object Map with fallback POM");
+                            preObjMapExtractor = new ConditionPredicateObjectMapExtractor();
+                        } else {
+                            log.debug("Simple Predicate Object Map Extractor");
+                            preObjMapExtractor = new PredicateObjectMapExtractor();
+                        }
+                    }
+                    PredicateObjectMap predicateObjectMap =
                             preObjMapExtractor.extractPredicateObjectMap(
                             repository, triplesMapSubject,
-                            (Resource) statements.next().getObject(),
-                            graphMaps, triplesMapResources, result);
+                            (Resource) statement.getObject(),
+                            graphMap, triplesMapResources, result);
                     if (predicateObjectMap != null) {
                         predicateObjectMap.setOwnTriplesMap(result);
                         predicateObjectMaps.add(predicateObjectMap);
                     }
                 }
             } catch (ClassCastException e) {
-                log.error("A resource was expected in object of predicateObjectMap of "
+                log.error("ClassCastException " + e 
+                        + " A resource was expected in object of predicateObjectMap of "
                         + triplesMapSubject.stringValue());
             }
             log.debug("Number of extracted predicate-object maps : "

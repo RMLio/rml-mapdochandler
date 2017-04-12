@@ -33,7 +33,9 @@ import org.slf4j.LoggerFactory;
 public class CsvwExtractor extends StdSourceExtractor {
     
     // Log
-    private static final Logger log = LoggerFactory.getLogger(CsvwExtractor.class);
+    private static final Logger log = 
+            LoggerFactory.getLogger(
+            CsvwExtractor.class.getSimpleName());
 
     public CsvwExtractor() {
     }
@@ -92,34 +94,50 @@ public class CsvwExtractor extends StdSourceExtractor {
     }
     
     @Override
-    public ReferenceFormulation extractCustomReferenceFormulation(
-            Repository repository, Value value){
-        ReferenceFormulation dialect = null;
-        log.debug("Custom Reference formulation is triggered.");
-        try {
-            RepositoryConnection connection = repository.getConnection();
-                ValueFactory vf = connection.getValueFactory();
-            URI p = vf.createURI(
-                    CSVWVocabulary.CSVW_NAMESPACE + CSVWVocabulary.CSVWTerm.DIALECT);
+    public ReferenceFormulation extractCustomReferenceFormulation(Repository repository, Value value){
+        
+    	ReferenceFormulation dialect = null;
+        
+    	log.debug("Custom Reference formulation is triggered.");
+        
+    	try {
+        
+    		RepositoryConnection connection = repository.getConnection();
+            
+            ValueFactory vf = connection.getValueFactory();
+            
+            URI prpDialect = vf.createURI(CSVWVocabulary.CSVW_NAMESPACE + CSVWVocabulary.CSVWTerm.DIALECT);
             RepositoryResult<Statement> dialectStatements =
                     connection.getStatements(
-                    (Resource) value, p, null, true);
+                    (Resource) value, prpDialect, null, true);
             
             if (dialectStatements.hasNext()) {
-                log.debug("CSVW Custom Reference formulation is triggered.");
+            	
+                log.debug("CSVW Custom Reference formulation (delimiter) is triggered.");
                 Statement dialectStatement = dialectStatements.next();
-                p = vf.createURI(
-                    CSVWVocabulary.CSVW_NAMESPACE + CSVWVocabulary.CSVWTerm.DELIMITER);
-                RepositoryResult<Statement> statements =
+                
+                prpDialect = vf.createURI(CSVWVocabulary.CSVW_NAMESPACE + CSVWVocabulary.CSVWTerm.DELIMITER);
+                RepositoryResult<Statement> delimiterStatements =
                     connection.getStatements(
-                    (Resource) dialectStatement.getObject(), p, null, true);
-                if(statements.hasNext()){
-                    log.debug("Generating CSVW Referencing Formulation.");
-                    dialect = new CsvwReferenceFormulation(
-                            statements.next().getObject().stringValue());
-                    log.debug("New CSVW Reference formulation was generated.");
+                    (Resource) dialectStatement.getObject(), prpDialect, null, true);
+                
+                RepositoryResult<Statement> encodingStatements =
+                    connection.getStatements(
+                    (Resource) dialectStatement.getObject(), prpDialect, null, true);
+                
+                String csvDelimiter = delimiterStatements.next().getObject().stringValue();
+                String csvEncoding = encodingStatements.next().getObject().stringValue();
+                
+                System.out.println("\n\n\n\n\n\n\n\n\n\n\n\n");
+                
+                if(delimiterStatements.hasNext() && encodingStatements.hasNext()){
+                    log.debug("Generating CSVW Referencing Formulation (delimiter, encoding).");
+                    dialect = new CsvwReferenceFormulation(csvDelimiter, csvEncoding);
+                    log.debug("New CSVW Reference formulation was generated (delimiter).");
                 }
+                
             }
+            
             connection.close();
             
         } catch (RepositoryException ex) {
